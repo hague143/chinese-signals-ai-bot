@@ -1,0 +1,113 @@
+// generate-icons.js
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+
+const publicDir = path.resolve('/home/user/public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+
+// 512x512 SVG with Dark Glassmorphism, Neon Cyan & Call Green trading motifs
+const svgContent = `
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#141e33" />
+      <stop offset="100%" stop-color="#07090e" />
+    </radialGradient>
+    <linearGradient id="neonGreen" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00e676" />
+      <stop offset="100%" stop-color="#00f2fe" />
+    </linearGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#7928ca" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#00e676" stop-opacity="0.8" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGlow)" />
+  
+  <!-- Outer glowing cyber ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#ringGrad)" stroke-width="6" filter="url(#glow)" />
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#1e293b" stroke-width="2" stroke-dasharray="10, 8" opacity="0.6" />
+
+  <!-- Background candlestick bars -->
+  <!-- Bullish candle 1 -->
+  <line x1="140" y1="200" x2="140" y2="340" stroke="#00e676" stroke-width="4" opacity="0.4" />
+  <rect x="125" y="230" width="30" height="80" rx="4" fill="#00e676" opacity="0.4" />
+
+  <!-- Bullish candle 2 -->
+  <line x1="372" y1="140" x2="372" y2="290" stroke="#00f2fe" stroke-width="4" opacity="0.4" />
+  <rect x="357" y="170" width="30" height="90" rx="4" fill="#00f2fe" opacity="0.4" />
+
+  <!-- Central stylized Chinese '中' Character with trading glow -->
+  <g filter="url(#glow)">
+    <!-- Vertical piercing central stem -->
+    <rect x="238" y="100" width="36" height="312" rx="10" fill="url(#neonGreen)" />
+    
+    <!-- Outer rectangle of '中' -->
+    <rect x="136" y="180" width="240" height="152" rx="20" fill="none" stroke="url(#neonGreen)" stroke-width="32" />
+    
+    <!-- Inner glowing cyber core point -->
+    <circle cx="256" cy="256" r="14" fill="#ffffff" />
+  </g>
+
+  <!-- Small AI telemetry badge -->
+  <rect x="186" y="420" width="140" height="36" rx="12" fill="#0b0f19" stroke="#00e676" stroke-width="2" />
+  <text x="256" y="443" font-family="'JetBrains Mono', monospace" font-size="16" font-weight="900" fill="#00e676" text-anchor="middle" letter-spacing="2">SIGNALS AI</text>
+</svg>
+`;
+
+async function generateAllIcons() {
+  const svgBuffer = Buffer.from(svgContent);
+
+  // Write SVG
+  fs.writeFileSync(path.join(publicDir, 'favicon.svg'), svgBuffer);
+
+  // 192x192
+  await sharp(svgBuffer)
+    .resize(192, 192)
+    .png()
+    .toFile(path.join(publicDir, 'pwa-192x192.png'));
+  console.log('Created pwa-192x192.png');
+
+  // 512x512
+  await sharp(svgBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'pwa-512x512.png'));
+  console.log('Created pwa-512x512.png');
+
+  // 512x512 Maskable Icon
+  await sharp(svgBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'maskable-icon-512x512.png'));
+  console.log('Created maskable-icon-512x512.png');
+
+  // Apple touch icon 180x180
+  await sharp(svgBuffer)
+    .resize(180, 180)
+    .png()
+    .toFile(path.join(publicDir, 'apple-touch-icon.png'));
+  console.log('Created apple-touch-icon.png');
+
+  // Favicon 64x64 PNG
+  await sharp(svgBuffer)
+    .resize(64, 64)
+    .png()
+    .toFile(path.join(publicDir, 'favicon.png'));
+  console.log('Created favicon.png');
+}
+
+generateAllIcons().catch(console.error);
