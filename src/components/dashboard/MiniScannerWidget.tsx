@@ -1,7 +1,7 @@
 // src/components/dashboard/MiniScannerWidget.tsx
 
 import React, { useEffect, useState } from 'react';
-import { ArrowUpRight, ArrowDownRight, PauseCircle, Search, RefreshCw, Zap } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, PauseCircle, Zap } from 'lucide-react';
 import { useSettings } from '../../context/SettingsContext';
 import { useMarket } from '../../context/MarketContext';
 import { useSignals } from '../../context/SignalContext';
@@ -11,7 +11,7 @@ import { SignalPipeline } from '../../engine/signalPipeline';
 
 export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onViewAll }) => {
   const { pairs, settings } = useSettings();
-  const { provider, setSelectedPair } = useMarket();
+  const { provider, setSelectedPair, selectedExpiry, setSelectedExpiry } = useMarket();
   const { generateSignal } = useSignals();
 
   const [topSignals, setTopSignals] = useState<{ pair: OTCPair; signal: MasterSignalOutput | null; loading: boolean }[]>([]);
@@ -19,17 +19,23 @@ export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onView
   useEffect(() => {
     const activePairs = pairs.filter(p => p.isActive).slice(0, 4);
     
-    // Initial run
     const loadQuickSignals = async () => {
       const results = await Promise.all(
         activePairs.map(async pair => {
           try {
-            const candles = await provider.getCandles(pair.symbol, '1m', 35);
-            if (candles && candles.length >= 15) {
+            const [c1m, c5m, c15m] = await Promise.all([
+              provider.getCandles(pair.symbol, '1m', 60),
+              provider.getCandles(pair.symbol, '5m', 30),
+              provider.getCandles(pair.symbol, '15m', 20),
+            ]);
+
+            if (c1m && c1m.length >= 15) {
               const sig = SignalPipeline.generateSignal({
                 symbol: pair.symbol,
-                candles,
-                expiry: '30s',
+                candles: c1m,
+                higherTfCandles5m: c5m,
+                higherTfCandles15m: c15m,
+                expiry: selectedExpiry,
                 settings,
               });
               return { pair, signal: sig, loading: false };
@@ -44,11 +50,16 @@ export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onView
     };
 
     loadQuickSignals();
-  }, [pairs, provider, settings]);
+  }, [pairs, provider, selectedExpiry, settings]);
 
-  const handleSelectPairSignal = (pair: OTCPair) => {
+  const handleSelectPairSignal = (pair: OTCPair, sig?: MasterSignalOutput | null) => {
     setSelectedPair(pair);
-    generateSignal(pair, '30s');
+    if (sig) {
+      setSelectedExpiry(sig.expiry);
+      generateSignal(pair, sig.expiry, sig);
+    } else {
+      generateSignal(pair, selectedExpiry);
+    }
   };
 
   return (
@@ -76,7 +87,7 @@ export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onView
           return (
             <div
               key={pair.id}
-              onClick={() => handleSelectPairSignal(pair)}
+              onClick={() => handleSelectPairSignal(pair, signal)}
               className="p-2.5 rounded-xl bg-dark-950/70 hover:bg-dark-850 border border-dark-800 hover:border-dark-650 transition-all flex items-center justify-between cursor-pointer group"
             >
               <div className="flex items-center gap-2.5">

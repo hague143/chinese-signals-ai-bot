@@ -34,6 +34,8 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
     const p = pairs.find((item: OTCPair) => item.symbol === sig.symbol);
     if (p) {
       setSelectedPair(p);
+      setSelectedExpiry(sig.expiry);
+      generateSignal(p, sig.expiry, sig);
       if (onTradePair) onTradePair(p);
     }
   };
@@ -48,7 +50,7 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
             <h2 className="text-xl font-black text-white">Quotex OTC Market Scanner</h2>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Parallel multi-feature scan across all configured OTC instruments. Evaluated strictly without lookahead bias.
+            Real-time multi-pair scan synchronized with live candle streams. Select any pair to trade the exact setup.
           </p>
         </div>
 

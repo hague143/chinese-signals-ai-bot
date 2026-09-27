@@ -10,6 +10,7 @@ interface SymbolState {
   volatility: number;
   phase: number;
   lastTickTime: number;
+  candleHistory1m: Candle[];
 }
 
 export class DemoProvider implements MarketDataProvider {
@@ -36,15 +37,48 @@ export class DemoProvider implements MarketDataProvider {
 
   private initializeState() {
     const pairs = StorageService.getOTCPairs();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const alignedNowSec = Math.floor(nowSec / 60) * 60;
+
     pairs.forEach(pair => {
       const hash = this.getSymbolHash(pair.symbol);
-      const initialDrift = ((hash % 100) - 48) * 0.00002;
+      const isPutBias = (hash % 2 === 0);
+      const initialDrift = isPutBias ? -0.00008 : 0.00008;
+      const decimals = pair.decimals || 5;
+      const vol = (pair.category === 'Crypto' ? 0.0006 : 0.00015);
+      const phase = (hash % 360) * (Math.PI / 180);
+
+      // Generate consistent baseline 1m candles for each pair
+      const candles1m: Candle[] = [];
+      let p = pair.lastPrice;
+
+      for (let i = 80; i >= 0; i--) {
+        const time = alignedNowSec - i * 60;
+        const t = 80 - i;
+        
+        // Deterministic macro trend wave per symbol
+        const trendBias = isPutBias ? -0.4 : 0.4;
+        const wave = Math.sin((t * 0.08) + phase) * 0.5 + trendBias;
+        const noise = (Math.sin(t * 1.7 + hash) * 0.3);
+        const delta = (wave + noise) * vol * p;
+
+        const open = Number(p.toFixed(decimals));
+        const close = Number(Math.max(0.0001, open + delta).toFixed(decimals));
+        const high = Number((Math.max(open, close) + Math.abs(noise) * vol * p * 0.8).toFixed(decimals));
+        const low = Number((Math.min(open, close) - Math.abs(noise) * vol * p * 0.8).toFixed(decimals));
+        const volume = Math.floor(Math.abs(Math.sin(t)) * 300) + 150;
+
+        candles1m.push({ time, open, high, low, close, volume });
+        p = close;
+      }
+
       this.symbolStates.set(pair.symbol, {
-        currentPrice: pair.lastPrice,
+        currentPrice: p,
         drift: initialDrift,
-        volatility: pair.category === 'Crypto' ? 0.0004 : 0.0001,
-        phase: (hash % 360) * (Math.PI / 180),
+        volatility: vol,
+        phase,
         lastTickTime: Date.now(),
+        candleHistory1m: candles1m,
       });
     });
   }
@@ -57,12 +91,7 @@ export class DemoProvider implements MarketDataProvider {
         const dt = 1;
         const randNormal = (Math.random() + Math.random() + Math.random() + Math.random() - 2) * 1.732;
         
-        // Periodic drift alteration
-        if (Math.random() < 0.05) {
-          state.drift = (Math.random() - 0.5) * 0.00015;
-        }
-
-        const deltaPct = state.drift * dt + state.volatility * randNormal * Math.sqrt(dt);
+        const deltaPct = state.drift * dt + state.volatility * randNormal * 0.4;
         const oldPrice = state.currentPrice;
         let newPrice = oldPrice * (1 + deltaPct);
 
@@ -73,6 +102,34 @@ export class DemoProvider implements MarketDataProvider {
 
         state.currentPrice = newPrice;
         state.lastTickTime = Date.now();
+
+        // Update active in-memory 1m candle
+        if (state.candleHistory1m.length > 0) {
+          const currentSec = Math.floor(Date.now() / 1000);
+          const currentCandleTime = Math.floor(currentSec / 60) * 60;
+          const lastCandle = state.candleHistory1m[state.candleHistory1m.length - 1];
+
+          if (currentCandleTime > lastCandle.time) {
+            // New 1m candle bar
+            state.candleHistory1m.push({
+              time: currentCandleTime,
+              open: lastCandle.close,
+              high: Math.max(lastCandle.close, newPrice),
+              low: Math.min(lastCandle.close, newPrice),
+              close: newPrice,
+              volume: 20,
+            });
+            if (state.candleHistory1m.length > 150) {
+              state.candleHistory1m.shift();
+            }
+          } else {
+            // Update current bar
+            lastCandle.close = newPrice;
+            lastCandle.high = Math.max(lastCandle.high, newPrice);
+            lastCandle.low = Math.min(lastCandle.low, newPrice);
+            lastCandle.volume += 5;
+          }
+        }
 
         const tickDirection = newPrice > oldPrice ? 'UP' : newPrice < oldPrice ? 'DOWN' : 'FLAT';
         const tick: Tick = {
@@ -103,14 +160,18 @@ export class DemoProvider implements MarketDataProvider {
   }
 
   public async getCandles(symbol: string, timeframe: Timeframe = '1m', limit = 100): Promise<Candle[]> {
-    const currentPrice = await this.getCurrentPrice(symbol);
-    const pairs = StorageService.getOTCPairs();
-    const pairObj = pairs.find(p => p.symbol === symbol);
-    const decimals = pairObj ? pairObj.decimals : 5;
-    const hash = this.getSymbolHash(symbol);
     const state = this.symbolStates.get(symbol);
-    const phaseOffset = state ? state.phase : (hash % 100) * 0.1;
+    if (!state) {
+      this.initializeState();
+    }
+    const curState = this.symbolStates.get(symbol);
+    const history1m = curState?.candleHistory1m || [];
 
+    if (timeframe === '1m' || !timeframe) {
+      return history1m.slice(-limit);
+    }
+
+    // Aggregate into 5m / 15m or synthesize 5s / 15s / 30s
     let tfSec = 60;
     switch (timeframe) {
       case '1s': tfSec = 1; break;
@@ -118,40 +179,55 @@ export class DemoProvider implements MarketDataProvider {
       case '10s': tfSec = 10; break;
       case '15s': tfSec = 15; break;
       case '30s': tfSec = 30; break;
-      case '1m': tfSec = 60; break;
       case '5m': tfSec = 300; break;
       case '15m': tfSec = 900; break;
+      default: tfSec = 60; break;
     }
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const alignedNowSec = Math.floor(nowSec / tfSec) * tfSec;
+    if (tfSec > 60) {
+      // Aggregate 1m bars into higher timeframe
+      const aggregated: Candle[] = [];
+      const bucketSize = tfSec / 60;
+      for (let i = 0; i < history1m.length; i += bucketSize) {
+        const slice = history1m.slice(i, i + bucketSize);
+        if (slice.length > 0) {
+          const open = slice[0].open;
+          const close = slice[slice.length - 1].close;
+          const high = Math.max(...slice.map(c => c.high));
+          const low = Math.min(...slice.map(c => c.low));
+          const volume = slice.reduce((acc, c) => acc + c.volume, 0);
+          aggregated.push({ time: slice[0].time, open, high, low, close, volume });
+        }
+      }
+      return aggregated.slice(-limit);
+    } else {
+      // Synthesize sub-minute candles from latest 1m bars for fast micro charts
+      const subCandles: Candle[] = [];
+      const pairs = StorageService.getOTCPairs();
+      const pairObj = pairs.find(p => p.symbol === symbol);
+      const decimals = pairObj ? pairObj.decimals : 5;
+      const currentP = curState ? curState.currentPrice : 1.0850;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const aligned = Math.floor(nowSec / tfSec) * tfSec;
 
-    const candles: Candle[] = [];
-    const vol = (pairObj?.category === 'Crypto' ? 0.0006 : 0.00015) * Math.sqrt(tfSec / 5);
+      let p = currentP;
+      const vol = (pairObj?.category === 'Crypto' ? 0.0003 : 0.00008) * Math.sqrt(tfSec / 5);
 
-    // Build series starting from (limit - 1) bars in the past forward to now
-    let price = currentPrice * (1 + Math.sin(phaseOffset) * 0.004);
+      for (let i = limit - 1; i >= 0; i--) {
+        const time = aligned - i * tfSec;
+        const driftStep = (curState?.drift || 0) * tfSec;
+        const noise = (Math.sin(i * 0.8) * 0.5) * vol * p;
+        const open = Number(p.toFixed(decimals));
+        const close = i === 0 ? currentP : Number(Math.max(0.0001, open + driftStep + noise).toFixed(decimals));
+        const high = Number((Math.max(open, close) + Math.abs(noise) * 0.5).toFixed(decimals));
+        const low = Number((Math.min(open, close) - Math.abs(noise) * 0.5).toFixed(decimals));
+        const volume = Math.floor(Math.random() * 50) + 10;
 
-    for (let i = limit - 1; i >= 0; i--) {
-      const time = alignedNowSec - i * tfSec;
-      const t = limit - i;
-      
-      // Multi-sine wave + micro trend component
-      const wave = Math.sin((t * 0.12) + phaseOffset) * 0.6 + Math.cos((t * 0.05) + phaseOffset) * 0.4;
-      const noise = (Math.random() - 0.495);
-      const stepPct = (wave * 0.4 + noise * 0.6) * vol;
-
-      const open = Number(price.toFixed(decimals));
-      const close = i === 0 ? currentPrice : Number(Math.max(0.0001, open * (1 + stepPct)).toFixed(decimals));
-      const high = Number((Math.max(open, close) + Math.random() * vol * open * 0.6).toFixed(decimals));
-      const low = Number((Math.min(open, close) - Math.random() * vol * open * 0.6).toFixed(decimals));
-      const volume = Math.floor(Math.random() * 400) + 120;
-
-      candles.push({ time, open, high, low, close, volume });
-      price = close;
+        subCandles.push({ time, open, high, low, close, volume });
+        p = close;
+      }
+      return subCandles;
     }
-
-    return candles;
   }
 
   public async getTicks(symbol: string, limit = 50): Promise<Tick[]> {
