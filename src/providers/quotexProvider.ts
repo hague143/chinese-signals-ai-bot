@@ -12,7 +12,6 @@ export class QuotexProvider implements MarketDataProvider {
   private isAuthorizedBridgeConnected = false;
 
   constructor() {
-    // Check if an authorized bridge token or environment WebSocket URL is provided
     this.checkBridgeStatus();
   }
 
@@ -30,8 +29,12 @@ export class QuotexProvider implements MarketDataProvider {
     return this.fallbackDemoProvider.getCurrentPrice(symbol);
   }
 
-  public async getCandles(symbol: string, timeframe: Timeframe, limit?: number): Promise<Candle[]> {
+  public async getCandles(symbol: string, timeframe?: Timeframe, limit?: number): Promise<Candle[]> {
     return this.fallbackDemoProvider.getCandles(symbol, timeframe, limit);
+  }
+
+  public async getClosedCandles(symbol: string, timeframe?: Timeframe, limit?: number): Promise<Candle[]> {
+    return this.fallbackDemoProvider.getClosedCandles(symbol, timeframe, limit);
   }
 
   public async getTicks(symbol: string, limit?: number): Promise<Tick[]> {

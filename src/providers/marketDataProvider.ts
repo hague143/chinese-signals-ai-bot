@@ -8,7 +8,8 @@ export interface MarketDataProvider {
 
   getAvailablePairs(): Promise<OTCPair[]>;
   getCurrentPrice(symbol: string): Promise<number>;
-  getCandles(symbol: string, timeframe: Timeframe, limit?: number): Promise<Candle[]>;
+  getCandles(symbol: string, timeframe?: Timeframe, limit?: number): Promise<Candle[]>;
+  getClosedCandles(symbol: string, timeframe?: Timeframe, limit?: number): Promise<Candle[]>;
   getTicks(symbol: string, limit?: number): Promise<Tick[]>;
   subscribeToPrice(symbol: string, callback: (price: number, tick: Tick) => void): () => void;
   getMarketStatus(): Promise<MarketStatus>;

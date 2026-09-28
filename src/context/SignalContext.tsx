@@ -1,9 +1,9 @@
 // src/context/SignalContext.tsx
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { MasterSignalOutput, SignalOutcome, SignalDirection } from '../types/signal';
+import { MasterSignalOutput, SignalOutcome } from '../types/signal';
 import { ExpiryDuration, OTCPair } from '../types/market';
-import { SignalPipeline } from '../engine/signalPipeline';
+import { CentralSignalEngine } from '../engine/centralSignalEngine';
 import { StorageService } from '../services/storageService';
 import { audioService } from '../services/audioService';
 import { TelegramService } from '../services/telegramService';
@@ -86,7 +86,7 @@ export const SignalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [settings]);
 
-  // Generate Signal function with realistic fast sequence
+  // Generate Signal via CentralSignalEngine
   const generateSignal = useCallback(async (
     targetPair?: OTCPair,
     targetExpiry?: ExpiryDuration,
@@ -98,75 +98,66 @@ export const SignalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsAnalyzing(true);
     setIsExpired(false);
 
-    // Reset steps
+    // Fast progress indicator steps
     const steps: AnalysisStep[] = DEFAULT_STEPS.map(s => ({ ...s, status: 'pending' }));
     setAnalysisSteps(steps);
 
     try {
-      // Step 1: Data Check
       steps[0].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 90));
+      await new Promise(r => setTimeout(r, 70));
       steps[0].status = 'completed';
 
-      // Step 2: Tech analysis
       steps[1].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 90));
+      await new Promise(r => setTimeout(r, 70));
       steps[1].status = 'completed';
 
-      // Step 3: Trend analysis
       steps[2].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, 60));
       steps[2].status = 'completed';
 
-      // Step 4: Momentum
       steps[3].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 80));
+      await new Promise(r => setTimeout(r, 60));
       steps[3].status = 'completed';
 
-      // Step 5: AI Model Ensemble
       steps[4].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 90));
+      await new Promise(r => setTimeout(r, 70));
       steps[4].status = 'completed';
 
-      // Step 6: Regime & Quality
       steps[5].status = 'in-progress';
       setAnalysisSteps([...steps]);
-      await new Promise(r => setTimeout(r, 70));
+      await new Promise(r => setTimeout(r, 60));
       steps[5].status = 'completed';
 
-      // Step 7: Final Signal
       steps[6].status = 'in-progress';
       setAnalysisSteps([...steps]);
 
       let sig: MasterSignalOutput;
 
       if (precomputedSignal && precomputedSignal.symbol === pairToUse.symbol) {
-        // Reuse precomputed consistent signal if provided from scanner
-        sig = {
-          ...precomputedSignal,
-          id: `SIG-${pairToUse.symbol.replace(/[^A-Za-z0-9]/g, '')}-${Date.now()}`,
-          timestamp: Date.now(),
-          expiresAt: Date.now() + precomputedSignal.expirySeconds * 1000,
-        };
+        sig = precomputedSignal;
       } else {
-        // Fetch synchronized 1m, 5m, 15m candles specifically for this pair
+        // Query authoritative closed candles
         const [c1m, c5m, c15m] = await Promise.all([
-          provider.getCandles(pairToUse.symbol, '1m', 60),
-          provider.getCandles(pairToUse.symbol, '5m', 30),
-          provider.getCandles(pairToUse.symbol, '15m', 20),
+          provider.getClosedCandles(pairToUse.symbol, '1m', 60),
+          provider.getClosedCandles(pairToUse.symbol, '5m', 30),
+          provider.getClosedCandles(pairToUse.symbol, '15m', 20),
         ]);
 
-        sig = SignalPipeline.generateSignal({
-          symbol: pairToUse.symbol,
+        sig = CentralSignalEngine.getOrGenerateSignal({
+          pair: pairToUse.symbol,
+          market: 'OTC',
+          expiry: expiryToUse,
+          timeframe: '1m',
           candles: c1m,
           higherTfCandles5m: c5m,
           higherTfCandles15m: c15m,
-          expiry: expiryToUse,
+          dataSource: provider.name,
+          mode: 'CLOSED_CANDLE',
           settings,
           lastActiveSignal: activeSignal,
         });
@@ -283,7 +274,7 @@ export const SignalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     StorageService.saveSignals([]);
   }, []);
 
-  // Bulk Scanner for all active OTC markets
+  // Bulk Scanner for all active OTC markets using CentralSignalEngine
   const scanAllMarkets = useCallback(async (): Promise<MasterSignalOutput[]> => {
     setIsScanning(true);
     const activePairs = pairs.filter((p: OTCPair) => p.isActive);
@@ -293,18 +284,22 @@ export const SignalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       for (const pair of activePairs) {
         try {
           const [c1m, c5m, c15m] = await Promise.all([
-            provider.getCandles(pair.symbol, '1m', 60),
-            provider.getCandles(pair.symbol, '5m', 30),
-            provider.getCandles(pair.symbol, '15m', 20),
+            provider.getClosedCandles(pair.symbol, '1m', 60),
+            provider.getClosedCandles(pair.symbol, '5m', 30),
+            provider.getClosedCandles(pair.symbol, '15m', 20),
           ]);
 
           if (c1m && c1m.length >= 15) {
-            const sig = SignalPipeline.generateSignal({
-              symbol: pair.symbol,
+            const sig = CentralSignalEngine.getOrGenerateSignal({
+              pair: pair.symbol,
+              market: 'OTC',
+              expiry: selectedExpiry,
+              timeframe: '1m',
               candles: c1m,
               higherTfCandles5m: c5m,
               higherTfCandles15m: c15m,
-              expiry: selectedExpiry,
+              dataSource: provider.name,
+              mode: 'CLOSED_CANDLE',
               settings,
             });
             results.push(sig);

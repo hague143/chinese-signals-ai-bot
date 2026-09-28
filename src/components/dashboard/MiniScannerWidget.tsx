@@ -7,7 +7,7 @@ import { useMarket } from '../../context/MarketContext';
 import { useSignals } from '../../context/SignalContext';
 import { OTCPair } from '../../types/market';
 import { MasterSignalOutput } from '../../types/signal';
-import { SignalPipeline } from '../../engine/signalPipeline';
+import { CentralSignalEngine } from '../../engine/centralSignalEngine';
 
 export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onViewAll }) => {
   const { pairs, settings } = useSettings();
@@ -24,18 +24,22 @@ export const MiniScannerWidget: React.FC<{ onViewAll?: () => void }> = ({ onView
         activePairs.map(async pair => {
           try {
             const [c1m, c5m, c15m] = await Promise.all([
-              provider.getCandles(pair.symbol, '1m', 60),
-              provider.getCandles(pair.symbol, '5m', 30),
-              provider.getCandles(pair.symbol, '15m', 20),
+              provider.getClosedCandles(pair.symbol, '1m', 60),
+              provider.getClosedCandles(pair.symbol, '5m', 30),
+              provider.getClosedCandles(pair.symbol, '15m', 20),
             ]);
 
             if (c1m && c1m.length >= 15) {
-              const sig = SignalPipeline.generateSignal({
-                symbol: pair.symbol,
+              const sig = CentralSignalEngine.getOrGenerateSignal({
+                pair: pair.symbol,
+                market: 'OTC',
+                expiry: selectedExpiry,
+                timeframe: '1m',
                 candles: c1m,
                 higherTfCandles5m: c5m,
                 higherTfCandles15m: c15m,
-                expiry: selectedExpiry,
+                dataSource: provider.name,
+                mode: 'CLOSED_CANDLE',
                 settings,
               });
               return { pair, signal: sig, loading: false };

@@ -35,6 +35,14 @@ export class DemoProvider implements MarketDataProvider {
     return Math.abs(hash);
   }
 
+  /**
+   * Deterministic pseudo-random float [0, 1) based on integer seed
+   */
+  private pseudoRandom(seed: number): number {
+    const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
   private initializeState() {
     const pairs = StorageService.getOTCPairs();
     const nowSec = Math.floor(Date.now() / 1000);
@@ -52,14 +60,15 @@ export class DemoProvider implements MarketDataProvider {
       const candles1m: Candle[] = [];
       let p = pair.lastPrice;
 
-      for (let i = 80; i >= 0; i--) {
+      for (let i = 120; i >= 0; i--) {
         const time = alignedNowSec - i * 60;
-        const t = 80 - i;
+        const t = 120 - i;
         
         // Deterministic macro trend wave per symbol
         const trendBias = isPutBias ? -0.4 : 0.4;
         const wave = Math.sin((t * 0.08) + phase) * 0.5 + trendBias;
-        const noise = (Math.sin(t * 1.7 + hash) * 0.3);
+        const seed = hash + time;
+        const noise = (this.pseudoRandom(seed) - 0.5) * 0.6;
         const delta = (wave + noise) * vol * p;
 
         const open = Number(p.toFixed(decimals));
@@ -87,6 +96,10 @@ export class DemoProvider implements MarketDataProvider {
     if (this.tickInterval) return;
 
     this.tickInterval = setInterval(() => {
+      const nowMs = Date.now();
+      const currentSec = Math.floor(nowMs / 1000);
+      const currentCandleTime = Math.floor(currentSec / 60) * 60;
+
       this.symbolStates.forEach((state, symbol) => {
         const dt = 1;
         const randNormal = (Math.random() + Math.random() + Math.random() + Math.random() - 2) * 1.732;
@@ -101,12 +114,10 @@ export class DemoProvider implements MarketDataProvider {
         newPrice = Number(newPrice.toFixed(decimals));
 
         state.currentPrice = newPrice;
-        state.lastTickTime = Date.now();
+        state.lastTickTime = nowMs;
 
         // Update active in-memory 1m candle
         if (state.candleHistory1m.length > 0) {
-          const currentSec = Math.floor(Date.now() / 1000);
-          const currentCandleTime = Math.floor(currentSec / 60) * 60;
           const lastCandle = state.candleHistory1m[state.candleHistory1m.length - 1];
 
           if (currentCandleTime > lastCandle.time) {
@@ -119,7 +130,7 @@ export class DemoProvider implements MarketDataProvider {
               close: newPrice,
               volume: 20,
             });
-            if (state.candleHistory1m.length > 150) {
+            if (state.candleHistory1m.length > 200) {
               state.candleHistory1m.shift();
             }
           } else {
@@ -133,7 +144,7 @@ export class DemoProvider implements MarketDataProvider {
 
         const tickDirection = newPrice > oldPrice ? 'UP' : newPrice < oldPrice ? 'DOWN' : 'FLAT';
         const tick: Tick = {
-          time: Date.now(),
+          time: nowMs,
           price: newPrice,
           volume: Math.floor(Math.random() * 50) + 10,
           direction: tickDirection,
@@ -159,19 +170,45 @@ export class DemoProvider implements MarketDataProvider {
     return p ? p.lastPrice : 1.0850;
   }
 
+  /**
+   * Return candles up to and including forming candle (or all candles)
+   */
   public async getCandles(symbol: string, timeframe: Timeframe = '1m', limit = 100): Promise<Candle[]> {
-    const state = this.symbolStates.get(symbol);
+    return this.getInternalCandles(symbol, timeframe, limit, false);
+  }
+
+  /**
+   * Return strictly closed (completed) candles, omitting any in-progress bar
+   */
+  public async getClosedCandles(symbol: string, timeframe: Timeframe = '1m', limit = 100): Promise<Candle[]> {
+    return this.getInternalCandles(symbol, timeframe, limit, true);
+  }
+
+  private getInternalCandles(symbol: string, timeframe: Timeframe = '1m', limit = 100, closedOnly = false): Candle[] {
+    let state = this.symbolStates.get(symbol);
     if (!state) {
       this.initializeState();
+      state = this.symbolStates.get(symbol);
     }
-    const curState = this.symbolStates.get(symbol);
-    const history1m = curState?.candleHistory1m || [];
+    const history1m = state?.candleHistory1m ? [...state.candleHistory1m] : [];
+
+    if (history1m.length === 0) return [];
+
+    let targetHistory = history1m;
+    if (closedOnly && targetHistory.length > 1) {
+      const currentSec = Math.floor(Date.now() / 1000);
+      const last = targetHistory[targetHistory.length - 1];
+      // If last candle started less than 60s ago, it is still forming
+      if (currentSec - last.time < 60) {
+        targetHistory = targetHistory.slice(0, -1);
+      }
+    }
 
     if (timeframe === '1m' || !timeframe) {
-      return history1m.slice(-limit);
+      return targetHistory.slice(-limit);
     }
 
-    // Aggregate into 5m / 15m or synthesize 5s / 15s / 30s
+    // Determine timeframe seconds
     let tfSec = 60;
     switch (timeframe) {
       case '1s': tfSec = 1; break;
@@ -188,8 +225,8 @@ export class DemoProvider implements MarketDataProvider {
       // Aggregate 1m bars into higher timeframe
       const aggregated: Candle[] = [];
       const bucketSize = tfSec / 60;
-      for (let i = 0; i < history1m.length; i += bucketSize) {
-        const slice = history1m.slice(i, i + bucketSize);
+      for (let i = 0; i < targetHistory.length; i += bucketSize) {
+        const slice = targetHistory.slice(i, i + bucketSize);
         if (slice.length > 0) {
           const open = slice[0].open;
           const close = slice[slice.length - 1].close;
@@ -201,32 +238,44 @@ export class DemoProvider implements MarketDataProvider {
       }
       return aggregated.slice(-limit);
     } else {
-      // Synthesize sub-minute candles from latest 1m bars for fast micro charts
+      // Deterministically synthesize sub-minute candles from persistent 1m candle bars
       const subCandles: Candle[] = [];
       const pairs = StorageService.getOTCPairs();
       const pairObj = pairs.find(p => p.symbol === symbol);
       const decimals = pairObj ? pairObj.decimals : 5;
-      const currentP = curState ? curState.currentPrice : 1.0850;
-      const nowSec = Math.floor(Date.now() / 1000);
-      const aligned = Math.floor(nowSec / tfSec) * tfSec;
-
-      let p = currentP;
+      const hash = this.getSymbolHash(symbol);
       const vol = (pairObj?.category === 'Crypto' ? 0.0003 : 0.00008) * Math.sqrt(tfSec / 5);
 
-      for (let i = limit - 1; i >= 0; i--) {
-        const time = aligned - i * tfSec;
-        const driftStep = (curState?.drift || 0) * tfSec;
-        const noise = (Math.sin(i * 0.8) * 0.5) * vol * p;
-        const open = Number(p.toFixed(decimals));
-        const close = i === 0 ? currentP : Number(Math.max(0.0001, open + driftStep + noise).toFixed(decimals));
-        const high = Number((Math.max(open, close) + Math.abs(noise) * 0.5).toFixed(decimals));
-        const low = Number((Math.min(open, close) - Math.abs(noise) * 0.5).toFixed(decimals));
-        const volume = Math.floor(Math.random() * 50) + 10;
+      // Deconstruct 1m bars into tfSec slices
+      const slicesPer1m = 60 / tfSec;
 
-        subCandles.push({ time, open, high, low, close, volume });
-        p = close;
+      for (let cIdx = 0; cIdx < targetHistory.length; cIdx++) {
+        const bar1m = targetHistory[cIdx];
+        const barOpen = bar1m.open;
+        const barClose = bar1m.close;
+        const barRange = barClose - barOpen;
+
+        let prevSubClose = barOpen;
+
+        for (let s = 0; s < slicesPer1m; s++) {
+          const subTime = bar1m.time + s * tfSec;
+          const stepFrac = (s + 1) / slicesPer1m;
+          const seed = hash + subTime;
+          const subNoise = (this.pseudoRandom(seed) - 0.5) * vol * barOpen;
+          
+          const open = Number(prevSubClose.toFixed(decimals));
+          const targetPrice = s === slicesPer1m - 1 ? barClose : barOpen + barRange * stepFrac + subNoise;
+          const close = Number(Math.max(0.0001, targetPrice).toFixed(decimals));
+          const high = Number((Math.max(open, close) + Math.abs(subNoise) * 0.5).toFixed(decimals));
+          const low = Number((Math.min(open, close) - Math.abs(subNoise) * 0.5).toFixed(decimals));
+          const volume = Math.floor(bar1m.volume / slicesPer1m);
+
+          subCandles.push({ time: subTime, open, high, low, close, volume });
+          prevSubClose = close;
+        }
       }
-      return subCandles;
+
+      return subCandles.slice(-limit);
     }
   }
 

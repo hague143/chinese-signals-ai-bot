@@ -1,20 +1,20 @@
 // src/components/scanner/OTCScannerView.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, RefreshCw, Sparkles, ArrowUpRight, ArrowDownRight, PauseCircle, ChevronRight, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { Search, RefreshCw, ArrowUpRight, ArrowDownRight, PauseCircle, ChevronRight, ShieldCheck, Database, Clock } from 'lucide-react';
 import { useSignals } from '../../context/SignalContext';
 import { useMarket } from '../../context/MarketContext';
 import { useSettings } from '../../context/SettingsContext';
-import { MasterSignalOutput, SignalDirection } from '../../types/signal';
+import { MasterSignalOutput } from '../../types/signal';
 import { OTCPair } from '../../types/market';
 
 export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }> = ({ onTradePair }) => {
   const { isScanning, scanResults, scanAllMarkets, generateSignal } = useSignals();
-  const { setSelectedPair, selectedExpiry, setSelectedExpiry } = useMarket();
+  const { setSelectedPair, setSelectedExpiry } = useMarket();
   const { settings, pairs } = useSettings();
 
   const [dirFilter, setDirFilter] = useState<'ALL' | 'CALL' | 'PUT' | 'WAIT'>('ALL');
-  const [confFilter, setConfFilter] = useState<number>(0); // 0 = all, 75, 80, 85, 90
+  const [confFilter, setConfFilter] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -50,8 +50,22 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
             <h2 className="text-xl font-black text-white">Quotex OTC Market Scanner</h2>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time multi-pair scan synchronized with live candle streams. Select any pair to trade the exact setup.
+            Synchronized with Central Quantitative Engine. Evaluated on strictly closed candle boundaries without lookahead bias.
           </p>
+          <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400 font-mono">
+            <span className="flex items-center gap-1 text-emerald-400">
+              <Database className="w-3.5 h-3.5" />
+              Source: Quotex OTC Simulator
+            </span>
+            <span className="flex items-center gap-1 text-cyan-400">
+              <Clock className="w-3.5 h-3.5" />
+              Mode: CLOSED_CANDLE
+            </span>
+            <span className="flex items-center gap-1 text-purple-400">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Engine: 6-Model Consensus
+            </span>
+          </div>
         </div>
 
         <button
@@ -95,10 +109,10 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
           <span className="text-slate-500 font-bold uppercase text-[10px] mr-1">Confidence:</span>
           {[
             { val: 0, label: 'All' },
+            { val: 70, label: '70%+' },
             { val: 75, label: '75%+' },
             { val: 80, label: '80%+' },
             { val: 85, label: '85%+' },
-            { val: 90, label: '90%+' },
           ].map(opt => (
             <button
               key={opt.val}
@@ -136,11 +150,12 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
                 <th className="py-3 px-4">PAIR</th>
                 <th className="py-3 px-3">SIGNAL</th>
                 <th className="py-3 px-3">CONFIDENCE</th>
+                <th className="py-3 px-3">EVIDENCE</th>
                 <th className="py-3 px-3">EXPIRY</th>
                 <th className="py-3 px-3">TREND</th>
                 <th className="py-3 px-3">MOMENTUM</th>
                 <th className="py-3 px-3">AI CONSENSUS</th>
-                <th className="py-3 px-3">STATUS</th>
+                <th className="py-3 px-3">CANDLE TIME</th>
                 <th className="py-3 px-4 text-right">ACTION</th>
               </tr>
             </thead>
@@ -148,8 +163,7 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
               {filteredResults.map(sig => {
                 const isCall = sig.direction === 'CALL';
                 const isPut = sig.direction === 'PUT';
-                const isWait = sig.direction === 'WAIT';
-                const isReady = sig.direction !== 'WAIT' && sig.confidence >= settings.minConfidenceThreshold;
+                const candleTimeStr = new Date(sig.candleTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
                 return (
                   <tr
@@ -193,6 +207,10 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
                       </div>
                     </td>
 
+                    <td className="py-3 px-3 text-slate-300 text-[11px]">
+                      <span className="text-emerald-400">+{sig.bullishScore}</span> / <span className="text-rose-400">-{sig.bearishScore}</span>
+                    </td>
+
                     <td className="py-3 px-3 text-slate-300 font-semibold">{sig.expiry}</td>
 
                     <td className="py-3 px-3 font-sans text-xs text-slate-300">
@@ -207,16 +225,8 @@ export const OTCScannerView: React.FC<{ onTradePair?: (pair: OTCPair) => void }>
                       {sig.modelAgreement.agreementRatio}
                     </td>
 
-                    <td className="py-3 px-3">
-                      {isReady ? (
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 font-bold text-[10px]">
-                          READY
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full bg-dark-800 text-slate-400 border border-dark-700 font-bold text-[10px]">
-                          FILTERED
-                        </span>
-                      )}
+                    <td className="py-3 px-3 text-slate-400 text-[11px]">
+                      {candleTimeStr}
                     </td>
 
                     <td className="py-3 px-4 text-right font-sans">

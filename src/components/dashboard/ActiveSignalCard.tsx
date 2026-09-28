@@ -13,10 +13,10 @@ import {
   XCircle,
   MinusCircle,
   Send,
-  AlertCircle,
-  CheckCircle2,
   Sparkles,
-  Zap,
+  Database,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { MasterSignalOutput } from '../../types/signal';
 import { useSignals } from '../../context/SignalContext';
@@ -41,7 +41,7 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
   const isWait = signal.direction === 'WAIT';
 
   const timeGen = new Date(signal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const timeValid = new Date(signal.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const timeCandle = new Date(signal.candleTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   // Progress percentage for countdown
   const progressPct = signal.expirySeconds > 0 ? (countdownRemaining / signal.expirySeconds) * 100 : 0;
@@ -68,36 +68,35 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
   let cardBorder = 'border-wait-border shadow-glow-wait';
   let badgeBg = 'bg-wait/20 text-wait border-wait/40';
   let dirIcon = <PauseCircle className="w-10 h-10 text-wait animate-pulse" />;
-  let dirText = 'WAIT / STANDBY';
-  let dirSub = 'Insufficient consensus or unfavorable conditions';
+  let dirText = 'NO TRADE / WAIT';
+  let dirSub = 'Insufficient consensus or conflicting indicators';
 
   if (isCall) {
     cardBorder = 'border-call/50 shadow-glow-call bg-gradient-to-b from-dark-900 via-call-bg/30 to-dark-900';
     badgeBg = 'bg-call/20 text-call border-call/40';
     dirIcon = <ArrowUpCircle className="w-12 h-12 text-call animate-bounce" />;
-    dirText = 'CALL';
-    dirSub = 'PREDICTED UPWARD MOVEMENT (HIGHER)';
+    dirText = 'CALL (HIGHER)';
+    dirSub = 'PREDICTED UPWARD MOMENTUM';
   } else if (isPut) {
     cardBorder = 'border-put/50 shadow-glow-put bg-gradient-to-b from-dark-900 via-put-bg/30 to-dark-900';
     badgeBg = 'bg-put/20 text-put border-put/40';
     dirIcon = <ArrowDownCircle className="w-12 h-12 text-put animate-bounce" />;
-    dirText = 'PUT';
-    dirSub = 'PREDICTED DOWNWARD MOVEMENT (LOWER)';
+    dirText = 'PUT (LOWER)';
+    dirSub = 'PREDICTED DOWNWARD MOMENTUM';
   }
 
-  // Result badge if already resolved
   const isResolved = signal.result && signal.result !== 'UNRESOLVED';
 
   return (
     <div className={`relative overflow-hidden rounded-2xl bg-dark-900 border ${cardBorder} p-5 transition-all duration-300 select-none`}>
-      {/* Background ambient lighting */}
+      {/* Background ambient glow */}
       <div className={`absolute top-0 right-0 w-80 h-80 rounded-full blur-3xl pointer-events-none opacity-20 ${
         isCall ? 'bg-call' : isPut ? 'bg-put' : 'bg-wait'
       }`} />
 
-      {/* Top Banner: Pair & Live Countdown */}
+      {/* Top Banner: Pair, Timeframe, Data Source, Status */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-dark-750">
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="px-2.5 py-1 rounded-lg bg-dark-800 text-white font-mono font-bold text-sm border border-dark-700">
             {signal.symbol}
           </span>
@@ -107,6 +106,13 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
           <span className="px-2 py-0.5 rounded-md bg-dark-800/80 text-slate-400 font-mono text-[11px]">
             {signal.marketType}
           </span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 text-emerald-400 font-mono text-[10px] border border-emerald-800/40 flex items-center gap-1">
+            <Database className="w-2.5 h-2.5" />
+            {signal.dataSource.includes('Demo') ? 'OTC Demo Feed' : 'Live OTC Stream'}
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-blue-950/80 text-blue-300 font-mono text-[10px] border border-blue-800/40">
+            {signal.signalMode}
+          </span>
         </div>
 
         {/* Live Countdown Badge */}
@@ -115,7 +121,7 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
             <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-dark-950 border border-cyan-500/40 shadow-sm">
               <Clock className="w-4 h-4 text-cyan-400 animate-spin-slow" />
               <div className="flex flex-col items-start">
-                <span className="text-[9px] uppercase font-bold text-cyan-400 tracking-wider">SIGNAL ACTIVE</span>
+                <span className="text-[9px] uppercase font-bold text-cyan-400 tracking-wider">TIMER ACTIVE</span>
                 <span className="text-base font-mono font-black text-white leading-none">
                   00:{countdownRemaining < 10 ? `0${countdownRemaining}` : countdownRemaining}
                 </span>
@@ -151,7 +157,7 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
           <div>{dirIcon}</div>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-3xl font-black font-mono tracking-wider ${
+              <span className={`text-2xl sm:text-3xl font-black font-mono tracking-wider ${
                 isCall ? 'text-call' : isPut ? 'text-put' : 'text-wait'
               }`}>
                 {dirText}
@@ -168,9 +174,11 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
         <div className="md:col-span-5 p-4 rounded-xl bg-dark-950/70 border border-dark-800 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs mb-1">
             <span className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-              Calculated Confidence
+              Evidence Confidence
             </span>
-            <span className="text-slate-500 font-mono text-[10px]">No Hardcoded Bias</span>
+            <span className="text-slate-500 font-mono text-[10px]">
+              +{signal.bullishScore} / -{signal.bearishScore}
+            </span>
           </div>
 
           <div className="flex items-baseline gap-2">
@@ -208,8 +216,8 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
         </div>
 
         <div className="p-2.5 rounded-xl bg-dark-850/80 border border-dark-750">
-          <div className="text-[10px] uppercase font-bold text-slate-500">Market Regime</div>
-          <div className="font-semibold text-xs text-cyan-300 mt-0.5 truncate">{signal.marketRegime}</div>
+          <div className="text-[10px] uppercase font-bold text-slate-500">Candle Closed At</div>
+          <div className="font-mono font-bold text-xs text-cyan-300 mt-0.5">{timeCandle}</div>
         </div>
 
         <div className="p-2.5 rounded-xl bg-dark-850/80 border border-dark-750">
@@ -218,11 +226,12 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
         </div>
 
         <div className="p-2.5 rounded-xl bg-dark-850/80 border border-dark-750">
-          <div className="text-[10px] uppercase font-bold text-slate-500">Risk Assessment</div>
-          <div className={`font-semibold text-xs mt-0.5 ${
-            signal.riskStatus === 'LOW' ? 'text-emerald-400' : signal.riskStatus === 'NORMAL' ? 'text-slate-200' : 'text-amber-400'
+          <div className="text-[10px] uppercase font-bold text-slate-500">Signal Status</div>
+          <div className={`font-semibold text-xs mt-0.5 flex items-center gap-1 ${
+            signal.isValid ? 'text-emerald-400' : 'text-amber-400'
           }`}>
-            {signal.riskStatus} RISK
+            {signal.isValid ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+            {signal.isValid ? 'CONFIRMED' : 'FILTERED'}
           </div>
         </div>
       </div>
@@ -232,7 +241,7 @@ export const ActiveSignalCard: React.FC<ActiveSignalCardProps> = ({ signal, onAn
         <div className="flex items-center justify-between text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">
           <span className="flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            AI Analytical Evidence
+            Deterministic Analytical Evidence
           </span>
           <span className="text-[10px] text-slate-500 font-mono">Generated at {timeGen}</span>
         </div>
