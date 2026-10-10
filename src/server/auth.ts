@@ -2,9 +2,9 @@
 
 import jwt from 'jsonwebtoken';
 import { parse, serialize } from 'cookie';
+import crypto from 'crypto';
 import { LicenseDB, LicenseRecord } from './db';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'chinese_signals_ai_bot_secure_jwt_secret_key_2026_xyz';
 const COOKIE_NAME = 'auth_license';
 
 export interface LicenseTokenPayload {
@@ -49,10 +49,22 @@ export const rateLimiter = new RateLimiter();
 
 export class AuthService {
   /**
+   * Return JWT Secret from environment variable or throw if missing
+   */
+  public static getJwtSecret(): string {
+    const secret = process.env.JWT_SECRET;
+    if (!secret || secret.trim().length === 0) {
+      throw new Error('Server not configured: Missing JWT_SECRET environment variable.');
+    }
+    return secret.trim();
+  }
+
+  /**
    * Sign a new JWT containing licenseId, key, and deviceId
    */
   public static signToken(payload: { licenseId: string; key: string; deviceId: string }): string {
-    return jwt.sign(payload, JWT_SECRET, {
+    const secret = AuthService.getJwtSecret();
+    return jwt.sign(payload, secret, {
       expiresIn: '90d',
     });
   }
@@ -62,7 +74,8 @@ export class AuthService {
    */
   public static verifyToken(token: string): LicenseTokenPayload | null {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as LicenseTokenPayload;
+      const secret = AuthService.getJwtSecret();
+      const decoded = jwt.verify(token, secret) as LicenseTokenPayload;
       if (decoded && decoded.key && decoded.deviceId) {
         return decoded;
       }
@@ -122,19 +135,43 @@ export class AuthService {
     cookieHeader?: string,
     authHeader?: string,
     incomingDeviceId?: string
-  ): Promise<{ authenticated: boolean; license?: LicenseRecord; error?: string }> {
-    const token = this.extractToken(cookieHeader, authHeader);
+  ): Promise<{ authenticated: boolean; license?: LicenseRecord; error?: string; isServerMisconfigured?: boolean }> {
+    let token: string | null = null;
+    try {
+      token = this.extractToken(cookieHeader, authHeader);
+    } catch {
+      return { authenticated: false, error: 'Malformed authentication headers.' };
+    }
+
     if (!token) {
       return { authenticated: false, error: 'No active license session found. Please enter your license key.' };
     }
 
-    const payload = this.verifyToken(token);
+    let payload: LicenseTokenPayload | null = null;
+    try {
+      payload = this.verifyToken(token);
+    } catch (err: any) {
+      if (err.message && err.message.includes('Server not configured')) {
+        return { authenticated: false, error: 'Server not configured', isServerMisconfigured: true };
+      }
+      return { authenticated: false, error: 'Invalid or expired session token.' };
+    }
+
     if (!payload) {
       return { authenticated: false, error: 'Invalid or expired session token. Please re-activate your key.' };
     }
 
     // Re-check database record on EVERY request
-    const license = await LicenseDB.getByKey(payload.key);
+    let license: LicenseRecord | null = null;
+    try {
+      license = await LicenseDB.getByKey(payload.key);
+    } catch (err: any) {
+      if (err.message && err.message.includes('Server not configured')) {
+        return { authenticated: false, error: 'Server not configured', isServerMisconfigured: true };
+      }
+      throw err;
+    }
+
     if (!license) {
       return { authenticated: false, error: 'License key was not found in the database.' };
     }
@@ -172,7 +209,7 @@ export class AuthService {
   }
 
   /**
-   * Generate formatted key: XXXX-XXXX-XXXX-XXXX
+   * Generate formatted key: XXXX-XXXX-XXXX-XXXX using crypto.randomInt
    */
   public static generateLicenseKey(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Base32 unambiguous charset
@@ -180,7 +217,8 @@ export class AuthService {
     for (let i = 0; i < 4; i++) {
       let chunk = '';
       for (let j = 0; j < 4; j++) {
-        chunk += chars.charAt(Math.floor(Math.random() * chars.length));
+        const randomIndex = crypto.randomInt(0, chars.length);
+        chunk += chars.charAt(randomIndex);
       }
       parts.push(chunk);
     }

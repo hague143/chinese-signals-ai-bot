@@ -1,7 +1,7 @@
 // src/components/auth/LoginView.tsx
 
 import React, { useState } from 'react';
-import { KeyRound, ShieldCheck, Sparkles, AlertCircle, Cpu, Lock, CheckCircle2, Copy } from 'lucide-react';
+import { KeyRound, ShieldCheck, Sparkles, AlertCircle, Cpu, Lock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export const LoginView: React.FC = () => {
@@ -39,11 +39,6 @@ export const LoginView: React.FC = () => {
       setErrorMessage(result.error || 'Failed to activate license key.');
     }
     setIsSubmitting(false);
-  };
-
-  const fillTestKey = (key: string) => {
-    setKeyInput(key);
-    setErrorMessage(null);
   };
 
   return (
@@ -118,41 +113,6 @@ export const LoginView: React.FC = () => {
               <span>{isSubmitting || isLoading ? 'VALIDATING HARDWARE BINDING...' : 'ACTIVATE ACCESS'}</span>
             </button>
           </form>
-
-          {/* Quick Demo Test Keys Helper */}
-          <div className="mt-6 pt-4 border-t border-dark-800/80">
-            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 text-center">
-              Available Test Keys (Pre-seeded in DB)
-            </div>
-            <div className="grid grid-cols-1 gap-1.5 font-mono text-[11px]">
-              <button
-                type="button"
-                onClick={() => fillTestKey('CSAI-DEMO-7DAY-TEST')}
-                className="w-full p-2 rounded-lg bg-dark-950 hover:bg-dark-850 border border-dark-800 hover:border-cyan-800/50 text-slate-300 hover:text-cyan-300 flex items-center justify-between transition-colors"
-              >
-                <span>CSAI-DEMO-7DAY-TEST</span>
-                <span className="text-[10px] text-cyan-400 font-bold font-sans">7-Day Demo</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillTestKey('CSAI-VIP1-30DY-TEST')}
-                className="w-full p-2 rounded-lg bg-dark-950 hover:bg-dark-850 border border-dark-800 hover:border-cyan-800/50 text-slate-300 hover:text-cyan-300 flex items-center justify-between transition-colors"
-              >
-                <span>CSAI-VIP1-30DY-TEST</span>
-                <span className="text-[10px] text-emerald-400 font-bold font-sans">30-Day VIP</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fillTestKey('CSAI-LIFE-PASS-TEST')}
-                className="w-full p-2 rounded-lg bg-dark-950 hover:bg-dark-850 border border-dark-800 hover:border-cyan-800/50 text-slate-300 hover:text-cyan-300 flex items-center justify-between transition-colors"
-              >
-                <span>CSAI-LIFE-PASS-TEST</span>
-                <span className="text-[10px] text-purple-400 font-bold font-sans">Lifetime Access</span>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Device Binding Footer Note */}
