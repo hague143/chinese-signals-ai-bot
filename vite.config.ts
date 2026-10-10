@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { viteApiPlugin } from './src/server/viteApiPlugin';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(async ({ command }) => ({
   plugins: [
-    viteApiPlugin(),
+    // API middleware only for local dev; never load server code during production build
+    ...(command === 'serve'
+      ? [(await import('./src/server/viteApiPlugin')).viteApiPlugin()]
+      : []),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -89,4 +91,4 @@ export default defineConfig({
     port: 3000,
     allowedHosts: true,
   }
-});
+}));
