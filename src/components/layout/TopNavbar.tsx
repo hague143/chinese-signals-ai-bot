@@ -18,10 +18,14 @@ import {
   VolumeX,
   Bot,
   Flame,
-  CheckCircle2,
+  LogOut,
+  KeyRound,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { useMarket } from '../../context/MarketContext';
 import { useSettings } from '../../context/SettingsContext';
+import { useAuth } from '../../context/AuthContext';
 
 export type NavTab =
   | 'dashboard'
@@ -43,6 +47,7 @@ interface TopNavbarProps {
 export const TopNavbar: React.FC<TopNavbarProps> = ({ activeTab, setActiveTab }) => {
   const { marketStatus } = useMarket();
   const { settings, updateSettings } = useSettings();
+  const { license, logout } = useAuth();
   const [localTime, setLocalTime] = useState<string>('');
   const [utcTime, setUtcTime] = useState<string>('');
 
@@ -67,8 +72,36 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ activeTab, setActiveTab })
     { id: 'backtest', label: 'Backtest', icon: <Layers className="w-4 h-4" /> },
     { id: 'models', label: 'AI Models', icon: <Cpu className="w-4 h-4" /> },
     { id: 'settings', label: 'Settings', icon: <Sliders className="w-4 h-4" /> },
-    { id: 'admin', label: 'Admin', icon: <Shield className="w-4 h-4" /> },
+    { id: 'admin', label: 'Admin', icon: <Shield className="w-4 h-4" />, badge: 'KEYS' },
   ];
+
+  // Expiry badge label
+  let expiryLabel = 'Active License';
+  let expiryColor = 'bg-emerald-950/80 text-emerald-300 border-emerald-800/60';
+
+  if (license) {
+    if (license.isLifetime) {
+      expiryLabel = 'Lifetime Access';
+      expiryColor = 'bg-purple-950/80 text-purple-300 border-purple-800/60';
+    } else if (license.daysRemaining !== null) {
+      if (license.daysRemaining <= 1) {
+        expiryLabel = 'Expires in < 24 Hours';
+        expiryColor = 'bg-rose-950/80 text-rose-300 border-rose-800/60 animate-pulse';
+      } else if (license.daysRemaining <= 3) {
+        expiryLabel = `Expires in ${license.daysRemaining} days`;
+        expiryColor = 'bg-amber-950/80 text-amber-300 border-amber-800/60';
+      } else {
+        expiryLabel = `Expires in ${license.daysRemaining} days`;
+        expiryColor = 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60';
+      }
+    }
+  }
+
+  const handleLogout = () => {
+    if (window.confirm('Are you sure you want to log out from this device?')) {
+      logout();
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-dark-900/90 backdrop-blur-xl border-b border-dark-700/70 select-none">
@@ -188,7 +221,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ activeTab, setActiveTab })
                 {item.icon}
                 <span>{item.label}</span>
                 {item.badge && (
-                  <span className="px-1 py-0.2 text-[9px] font-bold rounded bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse">
+                  <span className={`px-1 py-0.2 text-[9px] font-bold rounded border ${
+                    item.badge === 'LIVE' ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse' : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  }`}>
                     {item.badge}
                   </span>
                 )}
@@ -197,8 +232,17 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ activeTab, setActiveTab })
           })}
         </nav>
 
-        {/* Quick Actions */}
-        <div className="flex items-center gap-2">
+        {/* License Expiry Badge & Logout Action */}
+        <div className="flex items-center gap-2.5">
+          {/* Expiry Pill */}
+          <div
+            className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-bold border shadow-sm ${expiryColor}`}
+            title={license?.key ? `Key: ${license.key}` : 'License Active'}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>{expiryLabel}</span>
+          </div>
+
           <button
             onClick={() => setActiveTab('scanner')}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-dark-800 text-slate-200 hover:bg-dark-700 border border-dark-700 transition-colors"
@@ -212,30 +256,48 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ activeTab, setActiveTab })
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black shadow-glow-call transition-all"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>GENERATE SIGNAL</span>
+            <span className="hidden sm:inline">GENERATE SIGNAL</span>
+            <span className="sm:hidden">SIGNAL</span>
+          </button>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-dark-800 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-dark-700 hover:border-rose-800/50 transition-colors"
+            title="Log out and unbind session"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Logout</span>
           </button>
         </div>
       </div>
 
       {/* Mobile Nav Scroller */}
-      <div className="xl:hidden flex items-center gap-1 px-3 py-1.5 overflow-x-auto border-t border-dark-800/80 bg-dark-950/70 scrollbar-none">
-        {navItems.map(item => {
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
-                isActive
-                  ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 font-semibold'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-dark-800/50'
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+      <div className="xl:hidden flex items-center justify-between gap-1 px-3 py-1.5 overflow-x-auto border-t border-dark-800/80 bg-dark-950/70 scrollbar-none">
+        <div className="flex items-center gap-1">
+          {navItems.map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
+                  isActive
+                    ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-700/60 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-dark-800/50'
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Mobile Expiry pill */}
+        <div className={`sm:hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap border ${expiryColor}`}>
+          {expiryLabel}
+        </div>
       </div>
     </header>
   );
